@@ -21,12 +21,16 @@ where
     }
 }
 
-pub struct Refined<T, V>
-where
-    V: Validator<T>,
-{
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash, Default)]
+pub struct Refined<T, V: Validator<T>> {
     data: T,
     validators: PhantomData<V>,
+}
+
+impl<T: std::fmt::Display, V: Validator<T>> std::fmt::Display for Refined<T, V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.data)
+    }
 }
 
 impl<T, V> Refined<T, V>
@@ -110,20 +114,32 @@ mod test {
 
 pub mod validators {
     use crate::{PedanticError, Validator};
-
     use paste::paste;
-    macro_rules! less_than {
-        ($( $type:ty ) +) => {
+
+    pub struct MinLength<const MIN: usize>;
+    impl<const MIN: usize, T: AsRef<str>> Validator<T> for MinLength<MIN> {
+        fn validate(value: &T) -> Result<(), PedanticError> {
+            if value.as_ref().len() < MIN {
+                return Err(PedanticError::ParsingFailedError);
+            }
+            Ok(())
+        }
+    }
+
+    macro_rules! int_comp {
+        ($base_name:ident $generic_name:ident $op:tt) => {
+            int_comp!(@impl $base_name $generic_name $op u8 u16 u32 u64 u128 i8 i16 i32 i64 i128);
+        };
+
+        (@impl $base_name:ident $generic_name:ident $op:tt $( $type:ty ) +) => {
             paste! {
                 $(
-                    pub struct [<LessThan $type:upper>]<const MAX: $type>;
-
-                    impl<const MAX: $type> Validator<$type> for [<LessThan $type:upper>]<MAX> {
+                    pub struct [<$base_name $type:upper>]<const $generic_name: $type>;
+                    impl<const $generic_name: $type> Validator<$type> for [<$base_name $type:upper>]<$generic_name> {
                         fn validate(value: &$type) -> Result<(), crate::PedanticError> {
-                            if *value >= MAX {
+                            if *value $op $generic_name {
                                 return Err(PedanticError::ParsingFailedError);
                             }
-
                             Ok(())
                         }
                     }
@@ -132,27 +148,9 @@ pub mod validators {
         };
     }
 
-    less_than!(u8 u16 u32 u64 u128 i8 i16 i32 i64 i128);
-
-    macro_rules! greater_than {
-        ($( $type:ty ) +) => {
-            paste! {
-                $(
-                    pub struct [<GreaterThan $type:upper>]<const MIN: $type>;
-
-                    impl<const MIN: $type> Validator<$type> for [<GreaterThan $type:upper>]<MIN> {
-                        fn validate(value: &$type) -> Result<(), crate::PedanticError> {
-                            if *value <= MIN {
-                                return Err(PedanticError::ParsingFailedError);
-                            }
-
-                            Ok(())
-                        }
-                    }
-                )+
-            }
-        };
-    }
-
-    greater_than!(u8 u16 u32 u64 u128 i8 i16 i32 i64 i128);
+    // Usage - no need to specify types!
+    int_comp!(GreaterThan MIN <=);
+    int_comp!(GreaterEqual MIN >);
+    int_comp!(LessThan MAX >=);
+    int_comp!(LessEqual MAX >);
 }
