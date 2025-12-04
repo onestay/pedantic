@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 paste = "1.0.15"
+regex = "1.12.2"
 
 [dev-dependencies]
 rstest = "0.26.1"
