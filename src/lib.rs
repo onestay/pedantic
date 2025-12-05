@@ -15,7 +15,7 @@
 //! includes:
 //! - LessThan/LessEqual for all integers
 //! - GreaterThan/GreatherEqual for all integer
-//! - [MaxLength](validators::MaxLength)/[MinLength](validators::MinLength) for Strings
+//! - [`MaxLength`](validators::MaxLength)/[`MinLength`](validators::MinLength) for Strings
 //! - AsciiString/HexString for Strings
 //!
 //! as well as a simple way to create your own regex validators using the [pattern] macro.
@@ -70,11 +70,11 @@ use std::{
 
 /// An opaque error type
 ///
-/// Use the [PedanticError::new] or [PedanticError::with_source_error] function to construct an instance of this type.
+/// Use the [`PedanticError::new`] or [`PedanticError::with_source_error`] function to construct an instance of this type.
 /// The error is opaque on purpose and only contains a String to display the validation error to an
 /// user.
 ///
-/// It also optionally contains an error source that can be retrived using [Error::source]
+/// It also optionally contains an error source that can be retrived using [`Error::source`]
 #[derive(Debug)]
 pub struct PedanticError {
     message: String,
@@ -127,14 +127,14 @@ pub trait PatternValidator {
     fn regex() -> &'static Regex;
 }
 
-/// Trait used for the [MaxLength](validators::MaxLength) and [MinLength](validators::MinLength)
+/// Trait used for the [`MaxLength`](validators::MaxLength) and [`MinLength`](validators::MinLength)
 /// validators.
 ///
 /// This trait includes a blanket impl for various traits that have a length from the standard
 /// library.
 ///
 /// # Note
-/// `HasLen` is implemented for [String] and [str] using the [String::len] function which returns
+/// `HasLen` is implemented for [String] and [str] using the [`String::len`] function which returns
 /// the number of bytes and not the actual length of the String in chars or graphemes.
 pub trait HasLen {
     /// Returns the length of the type
@@ -227,7 +227,7 @@ where
 ///
 /// # Limitations
 /// It is not possible to get an `&mut T` since bypassing the validators in that way would be
-/// trivial. For updating the value use [Refined::update].
+/// trivial. For updating the value use [`Refined::update`].
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash, Default)]
 pub struct Refined<T, V: Validator<T>> {
     data: T,
