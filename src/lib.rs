@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![warn(clippy::pedantic)]
 
 //! # Pedantic
 //! Pedantic is a simple, lightweight framework for creating checked types.
@@ -34,6 +35,24 @@
 //! assert!(my_big_u32.is_err());
 //! ```
 //!
+//! ```
+//! use pedantic::Refined;
+//! use pedantic::validators::*;
+//!
+//! type MyAsciiString = Refined<String, (MinLength<5>, MaxLength<15>, AsciiString)>;
+//!
+//! let my_valid_ascii_string = MyAsciiString::parse("Hello, World!".to_string());
+//! assert!(my_valid_ascii_string.is_ok());
+//!
+//! let my_invalid_ascii_string = MyAsciiString::parse("Hello, World but slightly longer!".to_string());
+//! assert!(my_invalid_ascii_string.is_err());
+//!
+//! let my_non_ascii_string = MyAsciiString::parse("Hello, Wörld!".to_string());
+//! assert!(my_invalid_ascii_string.is_err());
+//! ```
+//!
+//! or create your own pattern validators using [pattern]
+//!
 //! # Limitations
 //! The [Validator] trait is not dyn compatible and does not take an &self
 //! which might make writing more complicated validators hard.
@@ -41,11 +60,55 @@
 //! type in your own type if you need more complicated logic.
 //!
 //! There currently is no way to `OR` validators.
-use std::marker::PhantomData;
 use regex::Regex;
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+    fmt::Display,
+    marker::PhantomData,
+};
 
-pub enum PedanticError {
-    ParsingFailedError,
+/// An opaque error type
+///
+/// Use the [PedanticError::new] or [PedanticError::with_source_error] function to construct an instance of this type.
+/// The error is opaque on purpose and only contains a String to display the validation error to an
+/// user.
+///
+/// It also optionally contains an error source that can be retrived using [Error::source]
+#[derive(Debug)]
+pub struct PedanticError {
+    message: String,
+    source: Option<Box<dyn Error>>,
+}
+
+impl PedanticError {
+    /// Construct a new error with the given message.
+    pub fn new<T: Display>(message: T) -> Self {
+        Self {
+            message: message.to_string(),
+            source: None,
+        }
+    }
+
+    /// Construct a new error with the given message and source error.
+    pub fn with_source_error<T: Display>(message: T, source: Box<dyn Error>) -> Self {
+        Self {
+            message: message.to_string(),
+            source: Option::Some(source),
+        }
+    }
+}
+
+impl Display for PedanticError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "validation failure: {}", self.message)
+    }
+}
+
+impl Error for PedanticError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.source.as_deref()
+    }
 }
 
 /// The main trait for validation.
@@ -53,19 +116,79 @@ pub enum PedanticError {
 /// This trait is deliberately not object safe and doesn't take a `&self` as it's argument.
 /// This is done to keep the `type` declarations clean and declarative.
 pub trait Validator<T> {
+    /// Returns a validation result for the given `T`.
     fn validate(value: &T) -> Result<(), PedanticError>;
 }
 
+/// Trait for a regex validator. For creating a new pattern validator use the [pattern] macro.
+#[doc(hidden)]
 pub trait PatternValidator {
     const PATTERN: &'static str;
     fn regex() -> &'static Regex;
+}
+
+/// Trait used for the [MaxLength](validators::MaxLength) and [MinLength](validators::MinLength)
+/// validators.
+///
+/// This trait includes a blanket impl for various traits that have a length from the standard
+/// library.
+///
+/// # Note
+/// `HasLen` is implemented for [String] and [str] using the [String::len] function which returns
+/// the number of bytes and not the actual length of the String in chars or graphemes.
+pub trait HasLen {
+    /// Returns the length of the type
+    fn _len(&self) -> usize;
+}
+
+impl<T> HasLen for [T] {
+    fn _len(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<T> HasLen for Vec<T> {
+    fn _len(&self) -> usize {
+        self.len()
+    }
+}
+
+impl HasLen for str {
+    fn _len(&self) -> usize {
+        self.len()
+    }
+}
+
+impl HasLen for String {
+    fn _len(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<T: HasLen + ?Sized> HasLen for &T {
+    fn _len(&self) -> usize {
+        (**self)._len()
+    }
+}
+
+impl<K, V> HasLen for HashMap<K, V> {
+    fn _len(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<T> HasLen for HashSet<T> {
+    fn _len(&self) -> usize {
+        self.len()
+    }
 }
 
 impl<T: AsRef<str>, U: PatternValidator> Validator<T> for U {
     fn validate(value: &T) -> Result<(), PedanticError> {
         let regex = U::regex();
         if !regex.is_match(value.as_ref()) {
-            return Err(PedanticError::ParsingFailedError);
+            let err = "the given value does not conform to the pattern.".to_string();
+            return Err(PedanticError::new(err));
         }
 
         Ok(())
@@ -100,6 +223,11 @@ where
     }
 }
 
+/// A wrapper around a T, parsing it using the given [Validators](Validator).
+///
+/// # Limitations
+/// It is not possible to get an `&mut T` since bypassing the validators in that way would be
+/// trivial. For updating the value use [Refined::update].
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash, Default)]
 pub struct Refined<T, V: Validator<T>> {
     data: T,
@@ -116,6 +244,7 @@ impl<T, V> Refined<T, V>
 where
     V: Validator<T>,
 {
+    /// Returns either an error if validation of `T` fails or the wrapped type.
     pub fn parse(value: T) -> Result<Self, PedanticError> {
         V::validate(&value)?;
 
@@ -123,6 +252,22 @@ where
             data: value,
             validators: PhantomData,
         })
+    }
+
+    /// Updates the value inside the Refined struct.
+    ///
+    /// This method will run the validators on T and if it passes the checks, update the wrapped
+    /// value with T.
+    pub fn update(&mut self, value: T) -> Result<(), PedanticError> {
+        V::validate(&value)?;
+        self.data = value;
+
+        Ok(())
+    }
+
+    /// Consumes self and returns the wrapped value.
+    pub fn take(self) -> T {
+        self.data
     }
 }
 
@@ -135,12 +280,39 @@ where
     }
 }
 
-pub mod validators {
-    use crate::{PedanticError, Validator, PatternValidator};
+impl<T: serde::Serialize, V: Validator<T>> serde::Serialize for Refined<T, V> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.data.serialize(serializer)
+    }
+}
 
-    use std::sync::LazyLock;
+impl<'de, T, V> serde::Deserialize<'de> for Refined<T, V>
+where
+    T: serde::Deserialize<'de>,
+    V: Validator<T>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = T::deserialize(deserializer)?;
+
+        Refined::parse(value).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Basic validators provided by this crate.
+///
+/// This module contains basic validators for all string types
+pub mod validators {
+    use crate::{HasLen, PatternValidator, PedanticError, Validator};
+
     use paste::paste;
     use regex::Regex;
+    use std::sync::LazyLock;
 
     /// Create custom regex validators using this macro.
     ///
@@ -157,6 +329,7 @@ pub mod validators {
     #[macro_export]
     macro_rules! pattern {
         ($name:ident, $regex:expr) => {
+            #[doc = concat!("Match the given str against the regex `", stringify!($regex), "`.")]
             pub struct $name;
 
             impl PatternValidator for $name {
@@ -175,21 +348,25 @@ pub mod validators {
     pattern!(AsciiString, r"^[[:ascii:]]*$");
     pattern!(HexString, r"^[\da-fA-f]*$");
 
+    /// Validates that the length of `T` is longer than `MIN`.
     pub struct MinLength<const MIN: usize>;
-    impl<const MIN: usize, T: AsRef<str>> Validator<T> for MinLength<MIN> {
+    impl<const MIN: usize, T: HasLen> Validator<T> for MinLength<MIN> {
         fn validate(value: &T) -> Result<(), PedanticError> {
-            if value.as_ref().len() < MIN {
-                return Err(PedanticError::ParsingFailedError);
+            if value._len() < MIN {
+                let err = format!("the given string needs to be at least {MIN} bytes long");
+                return Err(PedanticError::new(err));
             }
             Ok(())
         }
     }
 
+    /// Validates that the length of `T` is shorter than `MAX`.
     pub struct MaxLength<const MAX: usize>;
-    impl<const MAX: usize, T: AsRef<str>> Validator<T> for MaxLength<MAX> {
+    impl<const MAX: usize, T: HasLen> Validator<T> for MaxLength<MAX> {
         fn validate(value: &T) -> Result<(), PedanticError> {
-            if value.as_ref().len() > MAX {
-                return Err(PedanticError::ParsingFailedError);
+            if value._len() > MAX {
+                let err = format!("the given string can not be longer than {MAX} byes");
+                return Err(PedanticError::new(err));
             }
             Ok(())
         }
@@ -210,7 +387,8 @@ pub mod validators {
                     impl<const $generic_name: $type> Validator<$type> for [<$base_name $type:upper>]<$generic_name> {
                         fn validate(value: &$type) -> Result<(), $crate::PedanticError> {
                             if *value $op $generic_name {
-                                return Err(PedanticError::ParsingFailedError);
+                                let err = format!("condition '{value} {} {}' not fulfilled.", stringify!($op), $generic_name);
+                                return Err(PedanticError::new(err));
                             }
                             Ok(())
                         }
@@ -228,8 +406,8 @@ pub mod validators {
 
 #[cfg(test)]
 mod test {
-    use crate::*;
     use crate::validators::*;
+    use crate::*;
     use rstest::rstest;
 
     const U32_TEST_VALUE: u32 = 20;
@@ -297,9 +475,28 @@ mod test {
     #[case("123456789a", true)]
     #[case("123456789abc", false)]
     fn string_length_max(#[case] value: &'static str, #[case] is_ok: bool) {
-        type TestType = Refined<String, MaxLength<10>>;
-        let res = TestType::parse(value.to_string());
+        type TestType<'a> = Refined<&'a String, MaxLength<10>>;
+        let value = value.to_string();
+        let res = TestType::parse(&value);
         assert_eq!(res.is_ok(), is_ok);
+    }
+
+    #[test]
+    fn vec_length() {
+        type TestType = Refined<Vec<u32>, MaxLength<2>>;
+
+        let res = TestType::parse(vec![1, 2, 3, 4]);
+
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn slice_length() {
+        type TestType<'a> = Refined<&'a [u32], MaxLength<2>>;
+        let test_arr = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let res = TestType::parse(&test_arr[0..5]);
+
+        assert!(res.is_err());
     }
 
     #[rstest]
@@ -322,5 +519,15 @@ mod test {
         let res = TestType::parse(value);
 
         assert_eq!(res.is_ok(), is_ok);
+    }
+
+    #[test]
+    fn test_custom_pattern() {
+        use std::sync::LazyLock;
+        pattern!(MyCoolRegexValidator, r"^[cb]at$");
+        type MyCoolString = Refined<String, MyCoolRegexValidator>;
+
+        let my_valid_string = MyCoolString::parse("cat".to_string());
+        assert!(my_valid_string.is_ok());
     }
 }
