@@ -1,7 +1,14 @@
 [package]
 name = "pedantic"
 version = "0.1.0"
+authors = ["Marius Meschter <git@meschter.me>"]
 edition = "2024"
+description = "Provide a checked newtype wrapper"
+readme = "README.md"
+repository = "https://github.com/onestay/pedantic"
+license = "MIT OR Apache-2.0"
+keywords = ["newtype", "checked", "strict", "typing", "parse", "refine"]
+categories = ["rust-patterns", "data-structures"]
 
 [dependencies]
 paste = "1.0.15"

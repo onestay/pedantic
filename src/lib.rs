@@ -1,5 +1,8 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2025 Marius Meschter
 #![warn(missing_docs)]
 #![warn(clippy::pedantic)]
+#![warn(clippy::cargo)]
 
 //! # Pedantic
 //! Pedantic is a simple, lightweight framework for creating checked types.
@@ -117,6 +120,10 @@ impl Error for PedanticError {
 /// This is done to keep the `type` declarations clean and declarative.
 pub trait Validator<T> {
     /// Returns a validation result for the given `T`.
+    ///
+    /// # Errors
+    ///
+    /// Should return [`PedanticError`] if the validation for `value` failed.
     fn validate(value: &T) -> Result<(), PedanticError>;
 }
 
@@ -136,49 +143,50 @@ pub trait PatternValidator {
 /// # Note
 /// `HasLen` is implemented for [String] and [str] using the [`String::len`] function which returns
 /// the number of bytes and not the actual length of the String in chars or graphemes.
+#[allow(clippy::len_without_is_empty)]
 pub trait HasLen {
     /// Returns the length of the type
-    fn _len(&self) -> usize;
+    fn len(&self) -> usize;
 }
 
 impl<T> HasLen for [T] {
-    fn _len(&self) -> usize {
+    fn len(&self) -> usize {
         self.len()
     }
 }
 
 impl<T> HasLen for Vec<T> {
-    fn _len(&self) -> usize {
+    fn len(&self) -> usize {
         self.len()
     }
 }
 
 impl HasLen for str {
-    fn _len(&self) -> usize {
+    fn len(&self) -> usize {
         self.len()
     }
 }
 
 impl HasLen for String {
-    fn _len(&self) -> usize {
+    fn len(&self) -> usize {
         self.len()
     }
 }
 
 impl<T: HasLen + ?Sized> HasLen for &T {
-    fn _len(&self) -> usize {
-        (**self)._len()
+    fn len(&self) -> usize {
+        (**self).len()
     }
 }
 
-impl<K, V> HasLen for HashMap<K, V> {
-    fn _len(&self) -> usize {
+impl<K, V, S: std::hash::BuildHasher> HasLen for HashMap<K, V, S> {
+    fn len(&self) -> usize {
         self.len()
     }
 }
 
-impl<T> HasLen for HashSet<T> {
-    fn _len(&self) -> usize {
+impl<T, S: std::hash::BuildHasher> HasLen for HashSet<T, S> {
+    fn len(&self) -> usize {
         self.len()
     }
 }
@@ -245,6 +253,10 @@ where
     V: Validator<T>,
 {
     /// Returns either an error if validation of `T` fails or the wrapped type.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PedanticError`] if any of the validators fail.
     pub fn parse(value: T) -> Result<Self, PedanticError> {
         V::validate(&value)?;
 
@@ -258,6 +270,10 @@ where
     ///
     /// This method will run the validators on T and if it passes the checks, update the wrapped
     /// value with T.
+    ///
+    /// # Errors
+    ///
+    /// Return [`PedanticError`] is any of the validators fail for the new value.
     pub fn update(&mut self, value: T) -> Result<(), PedanticError> {
         V::validate(&value)?;
         self.data = value;
@@ -300,7 +316,7 @@ where
     {
         let value = T::deserialize(deserializer)?;
 
-        Refined::parse(value).map_err(serde::de::Error::custom)
+        Self::parse(value).map_err(serde::de::Error::custom)
     }
 }
 
@@ -352,7 +368,7 @@ pub mod validators {
     pub struct MinLength<const MIN: usize>;
     impl<const MIN: usize, T: HasLen> Validator<T> for MinLength<MIN> {
         fn validate(value: &T) -> Result<(), PedanticError> {
-            if value._len() < MIN {
+            if value.len() < MIN {
                 let err = format!("the given string needs to be at least {MIN} bytes long");
                 return Err(PedanticError::new(err));
             }
@@ -364,7 +380,7 @@ pub mod validators {
     pub struct MaxLength<const MAX: usize>;
     impl<const MAX: usize, T: HasLen> Validator<T> for MaxLength<MAX> {
         fn validate(value: &T) -> Result<(), PedanticError> {
-            if value._len() > MAX {
+            if value.len() > MAX {
                 let err = format!("the given string can not be longer than {MAX} byes");
                 return Err(PedanticError::new(err));
             }
