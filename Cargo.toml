@@ -10,10 +10,18 @@ license = "MIT OR Apache-2.0"
 keywords = ["newtype", "checked", "strict", "typing", "parse", "refine"]
 categories = ["rust-patterns", "data-structures"]
 
+[features]
+regex = ["dep:regex"]
+serde = ["dep:serde"]
+
 [dependencies]
 paste = "1.0.15"
-regex = "1.12.2"
-serde = "1.0.228"
+regex = { version = "1", optional = true }
+serde = { version = "1", optional = true }
 
 [dev-dependencies]
 rstest = "0.26.1"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

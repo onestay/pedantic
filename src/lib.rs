@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2025 Marius Meschter
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![warn(missing_docs)]
 #![warn(clippy::pedantic)]
 #![warn(clippy::cargo)]
@@ -19,7 +20,7 @@
 //! - LessThan/LessEqual for all integers
 //! - GreaterThan/GreatherEqual for all integer
 //! - [`MaxLength`](validators::MaxLength)/[`MinLength`](validators::MinLength) for Strings
-//! - AsciiString/HexString for Strings
+//! - [`AsciiString`](validators::pattern::AsciiString)/[`HexString`](validators::pattern::HexString) for Strings
 //!
 //! as well as a simple way to create your own regex validators using the [pattern] macro.
 //!
@@ -41,6 +42,7 @@
 //! ```
 //! use pedantic::Refined;
 //! use pedantic::validators::*;
+//! use pedantic::validators::pattern::*;
 //!
 //! type MyAsciiString = Refined<String, (MinLength<5>, MaxLength<15>, AsciiString)>;
 //!
@@ -63,7 +65,6 @@
 //! type in your own type if you need more complicated logic.
 //!
 //! There currently is no way to `OR` validators.
-use regex::Regex;
 use std::{
     collections::{HashMap, HashSet},
     error::Error,
@@ -127,13 +128,6 @@ pub trait Validator<T> {
     fn validate(value: &T) -> Result<(), PedanticError>;
 }
 
-/// Trait for a regex validator. For creating a new pattern validator use the [pattern] macro.
-#[doc(hidden)]
-pub trait PatternValidator {
-    const PATTERN: &'static str;
-    fn regex() -> &'static Regex;
-}
-
 /// Trait used for the [`MaxLength`](validators::MaxLength) and [`MinLength`](validators::MinLength)
 /// validators.
 ///
@@ -188,18 +182,6 @@ impl<K, V, S: std::hash::BuildHasher> HasLen for HashMap<K, V, S> {
 impl<T, S: std::hash::BuildHasher> HasLen for HashSet<T, S> {
     fn len(&self) -> usize {
         self.len()
-    }
-}
-
-impl<T: AsRef<str>, U: PatternValidator> Validator<T> for U {
-    fn validate(value: &T) -> Result<(), PedanticError> {
-        let regex = U::regex();
-        if !regex.is_match(value.as_ref()) {
-            let err = "the given value does not conform to the pattern.".to_string();
-            return Err(PedanticError::new(err));
-        }
-
-        Ok(())
     }
 }
 
@@ -296,27 +278,89 @@ where
     }
 }
 
-impl<T: serde::Serialize, V: Validator<T>> serde::Serialize for Refined<T, V> {
+#[cfg(feature = "serde")]
+impl<T: ::serde::Serialize, V: Validator<T>> ::serde::Serialize for Refined<T, V> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer,
+        S: ::serde::Serializer,
     {
         self.data.serialize(serializer)
     }
 }
 
-impl<'de, T, V> serde::Deserialize<'de> for Refined<T, V>
+#[cfg(feature = "serde")]
+impl<'de, T, V> ::serde::Deserialize<'de> for Refined<T, V>
 where
-    T: serde::Deserialize<'de>,
+    T: ::serde::Deserialize<'de>,
     V: Validator<T>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de>,
+        D: ::serde::Deserializer<'de>,
     {
         let value = T::deserialize(deserializer)?;
 
-        Self::parse(value).map_err(serde::de::Error::custom)
+        Self::parse(value).map_err(::serde::de::Error::custom)
+    }
+}
+
+#[cfg(feature = "regex")]
+#[doc(hidden)]
+pub mod pattern {
+    use crate::{PedanticError, Validator};
+    use regex::Regex;
+
+    /// Trait for a regex validator. For creating a new pattern validator use the [pattern] macro.
+    #[doc(hidden)]
+    pub trait PatternValidator {
+        const PATTERN: &'static str;
+        fn regex() -> &'static Regex;
+    }
+
+    impl<T: AsRef<str>, U: PatternValidator> Validator<T> for U {
+        fn validate(value: &T) -> Result<(), PedanticError> {
+            let regex = U::regex();
+            if !regex.is_match(value.as_ref()) {
+                let err = "the given value does not conform to the pattern.".to_string();
+                return Err(PedanticError::new(err));
+            }
+
+            Ok(())
+        }
+    }
+
+    /// Create custom regex validators using this macro.
+    ///
+    /// The name of the validator is the first option and the regex the second.
+    /// # Example
+    /// ```
+    /// use pedantic::pattern_validator;
+    /// use pedantic::pattern::PatternValidator;
+    ///
+    /// pattern_validator!(MyCoolRegexValidator, r"^[b-chm-pP]at|ot$");
+    /// ```
+    #[cfg_attr(docsrs, doc(cfg(feature = "regex")))]
+    #[macro_export]
+    macro_rules! pattern_validator {
+        ($name:ident, $regex:expr) => {
+            #[doc = concat!("Match the given str against the regex `", stringify!($regex), "`.")]
+            pub struct $name;
+
+            impl $crate::pattern::PatternValidator for $name {
+                const PATTERN: &'static str = $regex;
+
+                fn regex() -> &'static ::regex::Regex {
+                    static REGEX: ::std::sync::LazyLock<::regex::Regex> =
+                        ::std::sync::LazyLock::new(|| {
+                            ::regex::Regex::new(
+                                <$name as $crate::pattern::PatternValidator>::PATTERN,
+                            )
+                            .expect("invalid regex")
+                        });
+                    &REGEX
+                }
+            }
+        };
     }
 }
 
@@ -324,45 +368,9 @@ where
 ///
 /// This module contains basic validators for all string types
 pub mod validators {
-    use crate::{HasLen, PatternValidator, PedanticError, Validator};
+    use crate::{HasLen, PedanticError, Validator};
 
     use paste::paste;
-    use regex::Regex;
-    use std::sync::LazyLock;
-
-    /// Create custom regex validators using this macro.
-    ///
-    /// The name of the validator is the first option and the regex the second.
-    /// # Example
-    /// ```
-    /// use pedantic::pattern;
-    /// use pedantic::PatternValidator;
-    /// use regex::Regex;
-    /// use std::sync::LazyLock;
-    ///
-    /// pattern!(MyCoolRegexValidator, r"^[b-chm-pP]at|ot$");
-    /// ```
-    #[macro_export]
-    macro_rules! pattern {
-        ($name:ident, $regex:expr) => {
-            #[doc = concat!("Match the given str against the regex `", stringify!($regex), "`.")]
-            pub struct $name;
-
-            impl PatternValidator for $name {
-                const PATTERN: &'static str = $regex;
-
-                fn regex() -> &'static Regex {
-                    static REGEX: LazyLock<Regex> = LazyLock::new(|| {
-                        Regex::new(<$name as PatternValidator>::PATTERN).expect("invalid regex")
-                    });
-                    &REGEX
-                }
-            }
-        };
-    }
-
-    pattern!(AsciiString, r"^[[:ascii:]]*$");
-    pattern!(HexString, r"^[\da-fA-f]*$");
 
     /// Validates that the length of `T` is longer than `MIN`.
     pub struct MinLength<const MIN: usize>;
@@ -418,12 +426,23 @@ pub mod validators {
     int_comp!(GreaterEqual MIN >);
     int_comp!(LessThan MAX >=);
     int_comp!(LessEqual MAX >);
+
+    #[cfg(feature = "regex")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "regex")))]
+    /// Provided pattern validators.
+    pub mod pattern {
+        use crate::pattern_validator;
+        pattern_validator!(AsciiString, r"^[[:ascii:]]*$");
+        pattern_validator!(HexString, r"^[\da-fA-f]*$");
+    }
 }
 
 #[cfg(test)]
 mod test {
+    use crate::Refined;
+    use crate::pattern_validator;
+    use crate::validators::pattern::*;
     use crate::validators::*;
-    use crate::*;
     use rstest::rstest;
 
     const U32_TEST_VALUE: u32 = 20;
@@ -539,8 +558,7 @@ mod test {
 
     #[test]
     fn test_custom_pattern() {
-        use std::sync::LazyLock;
-        pattern!(MyCoolRegexValidator, r"^[cb]at$");
+        pattern_validator!(MyCoolRegexValidator, r"^[cb]at$");
         type MyCoolString = Refined<String, MyCoolRegexValidator>;
 
         let my_valid_string = MyCoolString::parse("cat".to_string());
