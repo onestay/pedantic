@@ -4,6 +4,9 @@
 #![warn(missing_docs)]
 #![warn(clippy::pedantic)]
 #![warn(clippy::cargo)]
+#![warn(clippy::missing_inline_in_public_items)]
+#![deny(clippy::unwrap_in_result)]
+#![deny(clippy::unwrap_used)]
 
 //! # Pedantic
 //! Pedantic is a simple, lightweight framework for creating checked types.
@@ -68,7 +71,7 @@
 use std::{
     collections::{HashMap, HashSet},
     error::Error,
-    fmt::Display,
+    fmt::{Debug, Display},
     marker::PhantomData,
 };
 
@@ -87,6 +90,7 @@ pub struct PedanticError {
 
 impl PedanticError {
     /// Construct a new error with the given message.
+    #[inline]
     pub fn new<T: Display>(message: T) -> Self {
         Self {
             message: message.to_string(),
@@ -95,6 +99,7 @@ impl PedanticError {
     }
 
     /// Construct a new error with the given message and source error.
+    #[inline]
     pub fn with_source_error<T: Display>(message: T, source: Box<dyn Error>) -> Self {
         Self {
             message: message.to_string(),
@@ -104,12 +109,14 @@ impl PedanticError {
 }
 
 impl Display for PedanticError {
+    #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "validation failure: {}", self.message)
     }
 }
 
 impl Error for PedanticError {
+    #[inline]
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         self.source.as_deref()
     }
@@ -144,42 +151,49 @@ pub trait HasLen {
 }
 
 impl<T> HasLen for [T] {
+    #[inline]
     fn len(&self) -> usize {
         self.len()
     }
 }
 
 impl<T> HasLen for Vec<T> {
+    #[inline]
     fn len(&self) -> usize {
         self.len()
     }
 }
 
 impl HasLen for str {
+    #[inline]
     fn len(&self) -> usize {
         self.len()
     }
 }
 
 impl HasLen for String {
+    #[inline]
     fn len(&self) -> usize {
         self.len()
     }
 }
 
 impl<T: HasLen + ?Sized> HasLen for &T {
+    #[inline]
     fn len(&self) -> usize {
         (**self).len()
     }
 }
 
 impl<K, V, S: std::hash::BuildHasher> HasLen for HashMap<K, V, S> {
+    #[inline]
     fn len(&self) -> usize {
         self.len()
     }
 }
 
 impl<T, S: std::hash::BuildHasher> HasLen for HashSet<T, S> {
+    #[inline]
     fn len(&self) -> usize {
         self.len()
     }
@@ -190,6 +204,7 @@ where
     V1: Validator<T>,
     V2: Validator<T>,
 {
+    #[inline]
     fn validate(value: &T) -> Result<(), PedanticError> {
         V1::validate(value)?;
         V2::validate(value)?;
@@ -204,6 +219,7 @@ where
     V2: Validator<T>,
     V3: Validator<T>,
 {
+    #[inline]
     fn validate(value: &T) -> Result<(), PedanticError> {
         V1::validate(value)?;
         V2::validate(value)?;
@@ -218,13 +234,103 @@ where
 /// # Limitations
 /// It is not possible to get an `&mut T` since bypassing the validators in that way would be
 /// trivial. For updating the value use [`Refined::update`].
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash, Default)]
 pub struct Refined<T, V: Validator<T>> {
     data: T,
     validators: PhantomData<V>,
 }
 
+impl<T, V> Debug for Refined<T, V>
+where
+    T: Debug,
+    V: Validator<T>,
+{
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Refined").field("data", &self.data).finish()
+    }
+}
+
+impl<T, V> Clone for Refined<T, V>
+where
+    T: Clone,
+    V: Validator<T>,
+{
+    #[inline]
+    fn clone(&self) -> Self {
+        Self { data: self.data.clone(), validators: self.validators }
+    }
+}
+
+impl<T, V> Copy for Refined<T, V>
+where
+    T: Copy,
+    V: Validator<T>,
+{}
+
+impl<T, V> PartialEq for Refined<T, V>
+where
+    T: PartialEq,
+    V: Validator<T>,
+{
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data
+    }
+}
+
+impl<T, V> PartialOrd for Refined<T, V>
+where
+    T: PartialOrd,
+    V: Validator<T>,
+{
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.data.partial_cmp(&other.data)
+    }
+}
+
+impl<T, V> Ord for Refined<T, V>
+where
+    T: Ord,
+    V: Validator<T>,
+{
+    #[inline]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.data.cmp(&other.data)
+    }
+}
+
+impl<T, V> Eq for Refined<T, V>
+where
+    T: Eq,
+    V: Validator<T>,
+{}
+
+impl<T, V> ::std::hash::Hash for Refined<T, V>
+where
+    T: ::std::hash::Hash,
+    V: Validator<T>,
+{
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.data.hash(state);
+    }
+}
+
+impl<T, V> Default for Refined<T, V>
+where
+    T: Default,
+    V: Validator<T>,
+{
+    #[inline]
+    fn default() -> Self {
+        Self { data: T::default(), validators: PhantomData }
+    }
+}
+
+
 impl<T: std::fmt::Display, V: Validator<T>> std::fmt::Display for Refined<T, V> {
+    #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.data)
     }
@@ -239,6 +345,7 @@ where
     /// # Errors
     ///
     /// Returns [`PedanticError`] if any of the validators fail.
+    #[inline]
     pub fn parse(value: T) -> Result<Self, PedanticError> {
         V::validate(&value)?;
 
@@ -256,6 +363,7 @@ where
     /// # Errors
     ///
     /// Return [`PedanticError`] is any of the validators fail for the new value.
+    #[inline]
     pub fn update(&mut self, value: T) -> Result<(), PedanticError> {
         V::validate(&value)?;
         self.data = value;
@@ -264,6 +372,7 @@ where
     }
 
     /// Consumes self and returns the wrapped value.
+    #[inline]
     pub fn take(self) -> T {
         self.data
     }
@@ -273,6 +382,7 @@ impl<T, V> AsRef<T> for Refined<T, V>
 where
     V: Validator<T>,
 {
+    #[inline]
     fn as_ref(&self) -> &T {
         &self.data
     }
@@ -280,6 +390,7 @@ where
 
 #[cfg(feature = "serde")]
 impl<T: ::serde::Serialize, V: Validator<T>> ::serde::Serialize for Refined<T, V> {
+    #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ::serde::Serializer,
@@ -294,6 +405,7 @@ where
     T: ::serde::Deserialize<'de>,
     V: Validator<T>,
 {
+    #[inline]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -318,6 +430,7 @@ pub mod pattern {
     }
 
     impl<T: AsRef<str>, U: PatternValidator> Validator<T> for U {
+        #[inline]
         fn validate(value: &T) -> Result<(), PedanticError> {
             let regex = U::regex();
             if !regex.is_match(value.as_ref()) {
@@ -349,6 +462,7 @@ pub mod pattern {
             impl $crate::pattern::PatternValidator for $name {
                 const PATTERN: &'static str = $regex;
 
+                #[inline]
                 fn regex() -> &'static ::regex::Regex {
                     static REGEX: ::std::sync::LazyLock<::regex::Regex> =
                         ::std::sync::LazyLock::new(|| {
@@ -375,6 +489,7 @@ pub mod validators {
     /// Validates that the length of `T` is longer than `MIN`.
     pub struct MinLength<const MIN: usize>;
     impl<const MIN: usize, T: HasLen> Validator<T> for MinLength<MIN> {
+        #[inline]
         fn validate(value: &T) -> Result<(), PedanticError> {
             if value.len() < MIN {
                 let err = format!("the given string needs to be at least {MIN} bytes long");
@@ -387,6 +502,7 @@ pub mod validators {
     /// Validates that the length of `T` is shorter than `MAX`.
     pub struct MaxLength<const MAX: usize>;
     impl<const MAX: usize, T: HasLen> Validator<T> for MaxLength<MAX> {
+        #[inline]
         fn validate(value: &T) -> Result<(), PedanticError> {
             if value.len() > MAX {
                 let err = format!("the given string can not be longer than {MAX} byes");
@@ -409,6 +525,7 @@ pub mod validators {
                     #[doc = "Check the crate level documentation for more information on usage."]
                     pub struct [<$base_name $type:upper>]<const $generic_name: $type>;
                     impl<const $generic_name: $type> Validator<$type> for [<$base_name $type:upper>]<$generic_name> {
+                        #[inline]
                         fn validate(value: &$type) -> Result<(), $crate::PedanticError> {
                             if *value $op $generic_name {
                                 let err = format!("condition '{value} {} {}' not fulfilled.", stringify!($op), $generic_name);
@@ -563,5 +680,18 @@ mod test {
 
         let my_valid_string = MyCoolString::parse("cat".to_string());
         assert!(my_valid_string.is_ok());
+    }
+
+    #[test]
+    fn test_usage_in_struct() {
+        // just to check it compiles
+        #[allow(unused)]
+        type MyType = Refined<u32, GreaterEqualU32<10>>;
+
+        #[allow(unused)]
+        #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash, Default)]
+        struct MyStruct {
+            my_type: MyType,
+        }
     }
 }
