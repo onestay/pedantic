@@ -512,6 +512,19 @@ pub mod validators {
         }
     }
 
+    /// Validates that the length of `T` is exactly `LEN`.
+    pub struct ExactLength<const LEN: usize>;
+    impl<const LEN: usize, T: HasLen> Validator<T> for ExactLength<LEN> {
+        #[inline]
+        fn validate(value: &T) -> Result<(), PedanticError> {
+            if value.len() > LEN {
+                let err = format!("the given value must be exactly {LEN} long");
+                return Err(PedanticError::new(err));
+            }
+            Ok(())
+        }
+    }
+
     macro_rules! int_comp {
         ($base_name:ident $generic_name:ident $op:tt) => {
             int_comp!(@impl $base_name $generic_name $op u8 u16 u32 u64 u128 i8 i16 i32 i64 i128);
