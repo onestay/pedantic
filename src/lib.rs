@@ -556,7 +556,7 @@ pub mod validators {
     }
 
     int_comp!(GreaterThan MIN <=);
-    int_comp!(GreaterEqual MIN >);
+    int_comp!(GreaterEqual MIN <);
     int_comp!(LessThan MAX >=);
     int_comp!(LessEqual MAX >);
 
