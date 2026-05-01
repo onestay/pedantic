@@ -710,4 +710,164 @@ mod test {
             my_type: MyType,
         }
     }
+
+    #[rstest]
+    #[case(9, false)]
+    #[case(10, true)]
+    #[case(11, true)]
+    fn greater_equal_u32(#[case] value: u32, #[case] is_ok: bool) {
+        type TestType = Refined<u32, GreaterEqualU32<10>>;
+        assert_eq!(TestType::parse(value).is_ok(), is_ok);
+    }
+
+    #[rstest]
+    #[case(9, true)]
+    #[case(10, true)]
+    #[case(11, false)]
+    fn less_equal_u32(#[case] value: u32, #[case] is_ok: bool) {
+        type TestType = Refined<u32, LessEqualU32<10>>;
+        assert_eq!(TestType::parse(value).is_ok(), is_ok);
+    }
+
+    #[rstest]
+    #[case(-5, false)]
+    #[case(0, true)]
+    #[case(5, true)]
+    fn greater_equal_i64(#[case] value: i64, #[case] is_ok: bool) {
+        type TestType = Refined<i64, GreaterEqualI64<0>>;
+        assert_eq!(TestType::parse(value).is_ok(), is_ok);
+    }
+
+    #[rstest]
+    #[case(i8::MIN, true)]
+    #[case(0, true)]
+    #[case(126, true)]
+    #[case(127, false)]
+    fn less_than_i8(#[case] value: i8, #[case] is_ok: bool) {
+        type TestType = Refined<i8, LessThanI8<127>>;
+        assert_eq!(TestType::parse(value).is_ok(), is_ok);
+    }
+
+    #[rstest]
+    #[case("abc", false)]
+    #[case("abcd", false)]
+    #[case("abcde", true)]
+    #[case("abcdef", false)]
+    fn exact_length_string(#[case] value: &'static str, #[case] is_ok: bool) {
+        type TestType = Refined<String, ExactLength<5>>;
+        assert_eq!(TestType::parse(value.to_string()).is_ok(), is_ok);
+    }
+
+    #[rstest]
+    #[case("0123456789abcdef", true)]
+    #[case("0123456789ABCDEF", true)]
+    #[case("", true)]
+    #[case("xyz", false)]
+    #[case("[]^_", false)]
+    #[case("ABCDEFG", false)]
+    fn hex_string_cases(#[case] value: &'static str, #[case] is_ok: bool) {
+        type TestType = Refined<&'static str, HexString>;
+        assert_eq!(TestType::parse(value).is_ok(), is_ok);
+    }
+
+    #[rstest]
+    #[case(vec![1u32], false)]
+    #[case(vec![1u32, 2, 3], true)]
+    #[case(vec![1u32, 2, 3, 4], true)]
+    fn min_length_vec(#[case] value: Vec<u32>, #[case] is_ok: bool) {
+        type TestType = Refined<Vec<u32>, MinLength<3>>;
+        assert_eq!(TestType::parse(value).is_ok(), is_ok);
+    }
+
+    #[test]
+    fn hashmap_length() {
+        use std::collections::HashMap;
+        type TestType = Refined<HashMap<u32, u32>, MaxLength<2>>;
+
+        let mut map = HashMap::new();
+        map.insert(1, 1);
+        map.insert(2, 2);
+        assert!(TestType::parse(map.clone()).is_ok());
+
+        map.insert(3, 3);
+        assert!(TestType::parse(map).is_err());
+    }
+
+    #[test]
+    fn hashset_length() {
+        use std::collections::HashSet;
+        type TestType = Refined<HashSet<u32>, MaxLength<2>>;
+
+        let mut set = HashSet::new();
+        set.insert(1);
+        set.insert(2);
+        assert!(TestType::parse(set.clone()).is_ok());
+
+        set.insert(3);
+        assert!(TestType::parse(set).is_err());
+    }
+
+    #[test]
+    fn combined_validators_short_circuit() {
+        type TestType = Refined<u32, (GreaterThanU32<10>, LessThanU32<100>, LessThanU32<50>)>;
+
+        // 5 fails the first validator (GreaterThanU32<10>)
+        let err = TestType::parse(5).expect_err("5 should fail GreaterThanU32<10>");
+        assert!(err.to_string().contains('5'));
+
+        // 75 fails the third validator only
+        let err = TestType::parse(75).expect_err("75 should fail LessThanU32<50>");
+        assert!(err.to_string().contains("75"));
+
+        assert!(TestType::parse(25).is_ok());
+    }
+
+    #[test]
+    fn update_rejects_invalid_and_keeps_old_value() {
+        type TestType = Refined<u32, LessThanU32<10>>;
+        let mut refined = TestType::parse(5).expect("5 is valid");
+
+        assert!(refined.update(20).is_err());
+        assert_eq!(*refined.as_ref(), 5);
+
+        assert!(refined.update(7).is_ok());
+        assert_eq!(*refined.as_ref(), 7);
+    }
+
+    #[test]
+    fn as_ref_returns_inner() {
+        type TestType = Refined<String, MaxLength<10>>;
+        let refined = TestType::parse("hello".to_string()).expect("valid");
+        let inner: &String = refined.as_ref();
+        assert_eq!(inner, "hello");
+    }
+
+    #[test]
+    fn take_consumes_inner() {
+        type TestType = Refined<String, MaxLength<10>>;
+        let refined = TestType::parse("hello".to_string()).expect("valid");
+        let inner: String = refined.take();
+        assert_eq!(inner, "hello");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_roundtrip() {
+        type TestType = Refined<u32, (GreaterThanU32<0>, LessThanU32<100>)>;
+        let original = TestType::parse(42).expect("valid");
+
+        let json = serde_json::to_string(&original).expect("serialize");
+        assert_eq!(json, "42");
+
+        let deserialized: TestType = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(deserialized, original);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_rejects_invalid() {
+        type TestType = Refined<u32, LessThanU32<10>>;
+        let result: Result<TestType, _> = serde_json::from_str("99");
+        assert!(result.is_err());
+    }
 }
