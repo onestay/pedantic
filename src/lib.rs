@@ -85,7 +85,7 @@ use std::{
 #[derive(Debug)]
 pub struct PedanticError {
     message: String,
-    source: Option<Box<dyn Error>>,
+    source: Option<Box<dyn Error + Send + Sync + 'static>>,
 }
 
 impl PedanticError {
@@ -100,7 +100,10 @@ impl PedanticError {
 
     /// Construct a new error with the given message and source error.
     #[inline]
-    pub fn with_source_error<T: Display>(message: T, source: Box<dyn Error>) -> Self {
+    pub fn with_source_error<T: Display>(
+        message: T,
+        source: Box<dyn Error + Send + Sync + 'static>,
+    ) -> Self {
         Self {
             message: message.to_string(),
             source: Option::Some(source),
@@ -118,7 +121,7 @@ impl Display for PedanticError {
 impl Error for PedanticError {
     #[inline]
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.source.as_deref()
+        self.source.as_deref().map(|e| e as &(dyn Error + 'static))
     }
 }
 
