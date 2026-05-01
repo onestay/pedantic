@@ -508,7 +508,7 @@ pub mod validators {
         #[inline]
         fn validate(value: &T) -> Result<(), PedanticError> {
             if value.len() > MAX {
-                let err = format!("the given string can not be longer than {MAX} byes");
+                let err = format!("the given string can not be longer than {MAX} bytes");
                 return Err(PedanticError::new(err));
             }
             Ok(())
