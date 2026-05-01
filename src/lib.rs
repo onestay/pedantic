@@ -566,7 +566,7 @@ pub mod validators {
     pub mod pattern {
         use crate::pattern_validator;
         pattern_validator!(AsciiString, r"^[[:ascii:]]*$");
-        pattern_validator!(HexString, r"^[\da-fA-f]*$");
+        pattern_validator!(HexString, r"^[\da-fA-F]*$");
     }
 }
 
