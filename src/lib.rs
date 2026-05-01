@@ -421,6 +421,10 @@ where
 
 #[cfg(feature = "regex")]
 #[doc(hidden)]
+pub use regex as __regex;
+
+#[cfg(feature = "regex")]
+#[doc(hidden)]
 pub mod pattern {
     use crate::{PedanticError, Validator};
     use regex::Regex;
@@ -466,10 +470,10 @@ pub mod pattern {
                 const PATTERN: &'static str = $regex;
 
                 #[inline]
-                fn regex() -> &'static ::regex::Regex {
-                    static REGEX: ::std::sync::LazyLock<::regex::Regex> =
+                fn regex() -> &'static $crate::__regex::Regex {
+                    static REGEX: ::std::sync::LazyLock<$crate::__regex::Regex> =
                         ::std::sync::LazyLock::new(|| {
-                            ::regex::Regex::new(
+                            $crate::__regex::Regex::new(
                                 <$name as $crate::pattern::PatternValidator>::PATTERN,
                             )
                             .expect("invalid regex")
