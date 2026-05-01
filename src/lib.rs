@@ -520,7 +520,7 @@ pub mod validators {
     impl<const LEN: usize, T: HasLen> Validator<T> for ExactLength<LEN> {
         #[inline]
         fn validate(value: &T) -> Result<(), PedanticError> {
-            if value.len() > LEN {
+            if value.len() != LEN {
                 let err = format!("the given value must be exactly {LEN} long");
                 return Err(PedanticError::new(err));
             }
